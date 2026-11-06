@@ -1,10 +1,19 @@
 # 🔎 Subdomain Finder — DNS Reconnaissance Tool
 
+
+## Get this repository
+
+Clone the current project (this repository's canonical GitHub URL), then follow the installation and usage steps below.
+
+```bash
+git clone https://github.com/cyberworlduniversity/subdomain_finder.git
+cd subdomain_finder
+```
+
 > **A Python-based tool that discovers subdomains of a given domain using a wordlist and DNS resolution.**
 
 ---
-
-## 📖 Table of Contents
+\n## 📖 Table of Contents
 
 1. [Definition & Purpose](#-definition--purpose)
 2. [Key Definitions (Glossary)](#-key-definitions-glossary)
