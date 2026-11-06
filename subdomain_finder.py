@@ -298,7 +298,7 @@ class SubdomainFinder:
                                 f"{k}: {', '.join(v)}"
                                 for k, v in result["records"].items()
                             )
-                            print(f"\\n{Fore.GREEN}[+] FOUND ➜ {Fore.WHITE}{result['subdomain']:<40} "
+                            print(f"{Fore.GREEN}[+] FOUND ➜ {Fore.WHITE}{result['subdomain']:<40} "
                                   f"{Fore.CYAN}IP: {ip_str}")
                             print(f"    {Fore.YELLOW}Records: {records_str}")
         except KeyboardInterrupt:
