@@ -13,7 +13,8 @@ cd subdomain_finder
 > **A Python-based tool that discovers subdomains of a given domain using a wordlist and DNS resolution.**
 
 ---
-\n## 📖 Table of Contents
+
+## 📖 Table of Contents
 
 1. [Definition & Purpose](#-definition--purpose)
 2. [Key Definitions (Glossary)](#-key-definitions-glossary)
