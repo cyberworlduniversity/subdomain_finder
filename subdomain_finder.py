@@ -24,6 +24,7 @@ import concurrent.futures
 import argparse
 import sys
 import os
+import re
 import json
 import csv
 from datetime import datetime
@@ -31,6 +32,9 @@ from colorama import Fore, Style, init
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
+
+MAX_WORDLIST_ENTRIES = 50000
+MAX_THREADS = 200
 
 
 # ─────────────────────────────────────────────
@@ -119,7 +123,17 @@ class SubdomainFinder:
     def __init__(self, domain: str, wordlist_path: str,
                  threads: int = 50, timeout: float = 2.0,
                  record_types: list = None):
-        self.domain = domain.lower().strip()
+        normalized_domain = domain.lower().strip().rstrip(".")
+        label_pattern = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+        if (len(normalized_domain) > 253 or "." not in normalized_domain or
+                not all(re.fullmatch(label_pattern, label) for label in normalized_domain.split("."))):
+            raise ValueError("Domain must be a valid DNS name with at least two labels.")
+        if not 1 <= threads <= MAX_THREADS:
+            raise ValueError(f"Threads must be between 1 and {MAX_THREADS}.")
+        if not 0.1 <= timeout <= 30:
+            raise ValueError("DNS timeout must be between 0.1 and 30 seconds.")
+
+        self.domain = normalized_domain
         self.wordlist_path = wordlist_path
         self.threads = threads
         self.timeout = timeout
@@ -147,14 +161,20 @@ class SubdomainFinder:
             print(f"{Fore.RED}[ERROR] Wordlist not found: {self.wordlist_path}")
             sys.exit(1)
 
+        label_pattern = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+        words = []
         with open(self.wordlist_path, "r", encoding="utf-8", errors="ignore") as f:
-            words = [
-                line.strip().lower()
-                for line in f
-                if line.strip() and not line.startswith("#")
-            ]
+            for line in f:
+                word = line.strip().lower()
+                if not word or word.startswith("#"):
+                    continue
+                if not label_pattern.fullmatch(word):
+                    continue
+                if len(words) >= MAX_WORDLIST_ENTRIES:
+                    raise ValueError(f"Wordlist exceeds the {MAX_WORDLIST_ENTRIES}-entry safety limit.")
+                words.append(word)
 
-        print(f"{Fore.YELLOW}[*] Loaded {len(words)} words from wordlist.")
+        print(f"{Fore.YELLOW}[*] Loaded {len(words)} valid words from wordlist.")
         return words
 
     # ── STEP 2: Check Wildcard DNS ─────────────
@@ -249,32 +269,38 @@ class SubdomainFinder:
         start_time = datetime.now()
 
         try:
+            # Submit bounded batches so large wordlists do not create an unbounded
+            # queue of pending Future objects.
+            batch_size = self.threads * 4
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
-                futures = {executor.submit(self.resolve_subdomain, word): word
-                           for word in words}
+                for offset in range(0, len(words), batch_size):
+                    batch = words[offset:offset + batch_size]
+                    futures = {executor.submit(self.resolve_subdomain, word): word for word in batch}
 
-                for future in concurrent.futures.as_completed(futures):
-                    self.total_checked += 1
-                    result = future.result()
+                    for future in concurrent.futures.as_completed(futures):
+                        self.total_checked += 1
+                        try:
+                            result = future.result()
+                        except Exception as exc:
+                            print(f"{Fore.YELLOW}[!] DNS lookup failed for {futures[future]}: {exc}")
+                            result = None
 
-                    # Progress indicator every 100 checks
-                    if self.total_checked % 100 == 0:
-                        pct = (self.total_checked / len(words)) * 100
-                        print(f"{Fore.BLUE}[~] Progress: {self.total_checked}/{len(words)} "
-                              f"({pct:.1f}%) | Found: {len(self.found_subdomains)}",
-                              end="\r")
+                        if self.total_checked % 100 == 0:
+                            pct = (self.total_checked / len(words)) * 100
+                            print(f"{Fore.BLUE}[~] Progress: {self.total_checked}/{len(words)} "
+                                  f"({pct:.1f}%) | Found: {len(self.found_subdomains)}",
+                                  end=chr(13))
 
-                    if result:
-                        self.found_subdomains.append(result)
-                        ip_str = ", ".join(result["ips"]) if result["ips"] else "N/A"
-                        records_str = " | ".join(
-                            f"{k}: {', '.join(v)}"
-                            for k, v in result["records"].items()
-                        )
-                        print(f"\n{Fore.GREEN}[+] FOUND ➜ {Fore.WHITE}{result['subdomain']:<40} "
-                              f"{Fore.CYAN}IP: {ip_str}")
-                        print(f"    {Fore.YELLOW}Records: {records_str}")
-
+                        if result:
+                            self.found_subdomains.append(result)
+                            ip_str = ", ".join(result["ips"]) if result["ips"] else "N/A"
+                            records_str = " | ".join(
+                                f"{k}: {', '.join(v)}"
+                                for k, v in result["records"].items()
+                            )
+                            print(f"{Fore.GREEN}[+] FOUND ➜ {Fore.WHITE}{result['subdomain']:<40} "
+                                  f"{Fore.CYAN}IP: {ip_str}")
+                            print(f"    {Fore.YELLOW}Records: {records_str}")
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}[!] Scan interrupted by user.")
 
@@ -402,14 +428,22 @@ def main():
         sys.exit(1)
 
     # Run the finder
-    finder = SubdomainFinder(
-        domain=args.domain,
-        wordlist_path=args.wordlist,
-        threads=args.threads,
-        timeout=args.timeout,
-    )
+    try:
+        finder = SubdomainFinder(
+            domain=args.domain,
+            wordlist_path=args.wordlist,
+            threads=args.threads,
+            timeout=args.timeout,
+        )
+    except ValueError as exc:
+        print(f"{Fore.RED}[ERROR] {exc}")
+        sys.exit(2)
 
-    finder.run()
+    try:
+        finder.run()
+    except ValueError as exc:
+        print(f"{Fore.RED}[ERROR] {exc}")
+        sys.exit(2)
 
     if not args.no_save:
         finder.save_results(output_dir=args.output)
