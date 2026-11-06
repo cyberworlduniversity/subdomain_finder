@@ -439,7 +439,11 @@ def main():
         print(f"{Fore.RED}[ERROR] {exc}")
         sys.exit(2)
 
-    finder.run()
+    try:
+        finder.run()
+    except ValueError as exc:
+        print(f"{Fore.RED}[ERROR] {exc}")
+        sys.exit(2)
 
     if not args.no_save:
         finder.save_results(output_dir=args.output)
