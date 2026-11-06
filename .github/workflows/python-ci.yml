@@ -24,3 +24,5 @@ jobs:
         run: python -m compileall -q .
       - name: Verify command-line help
         run: python subdomain_finder.py --help
+      - name: Run unit tests
+        run: python -m unittest discover -v
