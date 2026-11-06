@@ -289,7 +289,7 @@ class SubdomainFinder:
                             pct = (self.total_checked / len(words)) * 100
                             print(f"{Fore.BLUE}[~] Progress: {self.total_checked}/{len(words)} "
                                   f"({pct:.1f}%) | Found: {len(self.found_subdomains)}",
-                                  end="\\r")
+                                  end=chr(13))
 
                         if result:
                             self.found_subdomains.append(result)
@@ -428,12 +428,16 @@ def main():
         sys.exit(1)
 
     # Run the finder
-    finder = SubdomainFinder(
-        domain=args.domain,
-        wordlist_path=args.wordlist,
-        threads=args.threads,
-        timeout=args.timeout,
-    )
+    try:
+        finder = SubdomainFinder(
+            domain=args.domain,
+            wordlist_path=args.wordlist,
+            threads=args.threads,
+            timeout=args.timeout,
+        )
+    except ValueError as exc:
+        print(f"{Fore.RED}[ERROR] {exc}")
+        sys.exit(2)
 
     finder.run()
 
